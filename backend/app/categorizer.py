@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Dict, List, Tuple
 
 from app.models import UNREVIEWED_CATEGORY
+from app.storage import _atomic_write_json, _lock_for
 
 DEFAULT_PATTERNS: Dict[str, str] = {
     "uber": "travel",
@@ -34,9 +35,8 @@ def _load_json(path: Path) -> dict:
 
 
 def _save_json(path: Path, data: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as fh:
-        json.dump(data, fh, indent=2, sort_keys=True)
+    with _lock_for(path):
+        _atomic_write_json(path, data)
 
 
 class Categorizer:

@@ -79,10 +79,8 @@ class TransactionUpdate(BaseModel):
         return v
 
 
-class BulkUpdateItem(BaseModel):
+class BulkUpdateItem(TransactionUpdate):
     transactionId: str
-    category: Optional[str] = None
-    costAssignee: Optional[int] = None
 
 
 class BulkUpdateRequest(BaseModel):
@@ -198,12 +196,8 @@ def bulk_update_transactions(month: str, body: BulkUpdateRequest):
         if not target:
             continue
         if item.category is not None:
-            if item.category not in CATEGORIES:
-                raise HTTPException(status_code=422, detail=f"Invalid category: {item.category}")
             target.category = item.category
         if item.costAssignee is not None:
-            if item.costAssignee not in VALID_COST_ASSIGNEES:
-                raise HTTPException(status_code=422, detail=f"Invalid costAssignee: {item.costAssignee}")
             target.costAssignee = item.costAssignee
         target.reviewed = True
         updated.append(target)

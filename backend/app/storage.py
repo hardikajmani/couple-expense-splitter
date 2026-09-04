@@ -11,13 +11,42 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import tempfile
+import threading
+from collections import defaultdict
 from pathlib import Path
 from typing import List, Optional
 
 from app.models import Transaction
 
 DEFAULT_DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+
+# Per-path locks guarding the read-modify-write cycle used when merging
+# transactions into a shared JSON file, since FastAPI's sync endpoints may
+# run concurrently across threads.
+_locks: dict = defaultdict(threading.Lock)
+_locks_guard = threading.Lock()
+
+
+def _lock_for(path: Path) -> threading.Lock:
+    key = str(path)
+    with _locks_guard:
+        return _locks[key]
+
+
+def _atomic_write_json(path: Path, data) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, indent=2, sort_keys=True)
+        os.replace(tmp_name, path)
+    except BaseException:
+        if os.path.exists(tmp_name):
+            os.remove(tmp_name)
+        raise
 
 
 class DuplicateFileError(ValueError):
@@ -56,8 +85,7 @@ class Storage:
     # ---- setup ----
     def save_setup(self, month: str, setup: dict) -> None:
         path = self.setup_path(month)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(setup, indent=2, sort_keys=True), encoding="utf-8")
+        _atomic_write_json(path, setup)
 
     def load_setup(self, month: str) -> Optional[dict]:
         path = self.setup_path(month)
@@ -79,19 +107,20 @@ class Storage:
         raw_dir = self.raw_dir(month, person)
         raw_dir.mkdir(parents=True, exist_ok=True)
 
-        new_hash = file_hash(content)
-        for existing in raw_dir.glob("*"):
-            if existing.is_file() and file_hash(existing.read_bytes()) == new_hash:
-                raise DuplicateFileError(f"File '{filename}' duplicates existing upload '{existing.name}'")
+        with _lock_for(raw_dir):
+            new_hash = file_hash(content)
+            for existing in raw_dir.glob("*"):
+                if existing.is_file() and file_hash(existing.read_bytes()) == new_hash:
+                    raise DuplicateFileError(f"File '{filename}' duplicates existing upload '{existing.name}'")
 
-        safe = _safe_name(filename)
-        target = raw_dir / safe
-        counter = 1
-        while target.exists():
-            stem, dot, ext = safe.rpartition(".")
-            target = raw_dir / (f"{stem}_{counter}.{ext}" if dot else f"{safe}_{counter}")
-            counter += 1
-        target.write_bytes(content)
+            safe = _safe_name(filename)
+            target = raw_dir / safe
+            counter = 1
+            while target.exists():
+                stem, dot, ext = safe.rpartition(".")
+                target = raw_dir / (f"{stem}_{counter}.{ext}" if dot else f"{safe}_{counter}")
+                counter += 1
+            target.write_bytes(content)
         return target
 
     # ---- cleaned transactions ----
@@ -99,14 +128,15 @@ class Storage:
         clean_dir = self.clean_dir(month, person)
         clean_dir.mkdir(parents=True, exist_ok=True)
         path = clean_dir / f"{_safe_name(account_name)}.json"
-        existing: List[dict] = []
-        if path.exists():
-            existing = json.loads(path.read_text(encoding="utf-8"))
-        existing_by_id = {t["transactionId"]: t for t in existing}
-        for txn in transactions:
-            existing_by_id[txn.transactionId] = txn.to_dict()
-        merged = list(existing_by_id.values())
-        path.write_text(json.dumps(merged, indent=2, sort_keys=True), encoding="utf-8")
+        with _lock_for(path):
+            existing: List[dict] = []
+            if path.exists():
+                existing = json.loads(path.read_text(encoding="utf-8"))
+            existing_by_id = {t["transactionId"]: t for t in existing}
+            for txn in transactions:
+                existing_by_id[txn.transactionId] = txn.to_dict()
+            merged = list(existing_by_id.values())
+            _atomic_write_json(path, merged)
         return path
 
     def load_all_transactions(self, month: str) -> List[Transaction]:
@@ -124,12 +154,11 @@ class Storage:
 
     def save_approved_snapshot(self, month: str, transactions: List[Transaction], summary: dict) -> Path:
         path = self.approved_path(month)
-        path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "transactions": [t.to_dict() for t in transactions],
             "summary": summary,
         }
-        path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+        _atomic_write_json(path, payload)
         return path
 
     def load_approved_snapshot(self, month: str) -> Optional[dict]:
