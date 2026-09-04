@@ -58,12 +58,29 @@ def test_full_pipeline(client):
     assert walmart_txn["category"] == "groceries"  # matched via merchant_patterns.json
     assert walmart_txn["reviewed"] is False
 
+    uber_txn = next(t for t in txns if t["merchantKey"] == "uber trip help uber com")
+    assert uber_txn["category"] == "travel"
+    assert uber_txn["reviewed"] is False
+
     update_resp = client.put(
         f"/api/months/2024-01/transactions/{walmart_txn['transactionId']}",
         json={"category": "groceries", "costAssignee": 0},
     )
     assert update_resp.status_code == 200
     assert update_resp.json()["category"] == "groceries"
+
+    # Pattern-matched suggestions are guesses and still block approval until
+    # explicitly confirmed, even though their category isn't "other".
+    blocked_resp = client.post("/api/months/2024-01/approve")
+    assert blocked_resp.status_code == 422
+
+    # Confirming without changing category/costAssignee still counts as review.
+    confirm_resp = client.put(
+        "/api/months/2024-01/transactions",
+        json={"updates": [{"transactionId": uber_txn["transactionId"]}]},
+    )
+    assert confirm_resp.status_code == 200
+    assert confirm_resp.json()[0]["reviewed"] is True
 
     approve_resp = client.post("/api/months/2024-01/approve")
     assert approve_resp.status_code == 200
@@ -91,6 +108,38 @@ def test_approve_blocks_unreviewed_other_category(client):
     )
     resp = client.post("/api/months/2024-02/approve")
     assert resp.status_code == 422
+
+
+def test_approve_blocks_unconfirmed_pattern_matched_category(client):
+    """Pattern-matched categories (e.g. uber -> travel) are guesses and must
+    still be explicitly confirmed before approval, even though they aren't
+    categorized as 'other'."""
+    client.post(
+        "/api/months/2024-06/setup",
+        json={"personA": "Alice", "personB": "Bob", "ratioA": 50, "ratioB": 50},
+    )
+    csv_content = (
+        "Date,Description,Sub-description,Amount\n"
+        "01/05/2024,UBER TRIP HELP.UBER.COM,,-12.50\n"
+    )
+    upload_resp = client.post(
+        "/api/months/2024-06/upload",
+        data={"person": "Alice"},
+        files={"file": ("scotia_credit.csv", io.BytesIO(csv_content.encode()), "text/csv")},
+    )
+    txn = upload_resp.json()["transactions"][0]
+    assert txn["category"] == "travel"
+    assert txn["reviewed"] is False
+
+    resp = client.post("/api/months/2024-06/approve")
+    assert resp.status_code == 422
+
+    client.put(
+        "/api/months/2024-06/transactions",
+        json={"updates": [{"transactionId": txn["transactionId"]}]},
+    )
+    resp = client.post("/api/months/2024-06/approve")
+    assert resp.status_code == 200
 
 
 def test_invalid_csv_returns_422(client):

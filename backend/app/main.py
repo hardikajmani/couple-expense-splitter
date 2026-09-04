@@ -216,11 +216,14 @@ def approve_month(month: str):
     setup = _require_setup(month)
     all_txns = storage.load_all_transactions(month)
 
-    unreviewed = [t for t in all_txns if not t.reviewed and t.category == "other"]
+    unreviewed = [t for t in all_txns if not t.reviewed]
     if unreviewed:
         raise HTTPException(
             status_code=422,
-            detail=f"{len(unreviewed)} transaction(s) must be reviewed (category='other'/unreviewed) before approval",
+            detail=(
+                f"{len(unreviewed)} transaction(s) still need review before approval. "
+                "Every row (including auto-categorized suggestions) must be confirmed."
+            ),
         )
 
     categorizer = Categorizer(storage.data_dir)

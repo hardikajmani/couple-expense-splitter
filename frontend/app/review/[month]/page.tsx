@@ -107,7 +107,39 @@ export default function ReviewPage({ params }: { params: Promise<{ month: string
     }
   }
 
-  const unreviewedCount = transactions.filter((t) => !t.reviewed && t.category === "other").length;
+  async function markSelectedReviewed() {
+    if (selected.size === 0) return;
+    const ids = Array.from(selected);
+    try {
+      await bulkUpdateTransactions(
+        month,
+        ids.map((id) => ({ transactionId: id }))
+      );
+      setTransactions((prev) =>
+        prev.map((t) => (selected.has(t.transactionId) ? { ...t, reviewed: true } : t))
+      );
+      setSelected(new Set());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to mark as reviewed");
+    }
+  }
+
+  function toggleSelectAllVisible() {
+    setSelected((prev) => {
+      const visibleIds = visible.map((t) => t.transactionId);
+      const allSelected = visibleIds.length > 0 && visibleIds.every((id) => prev.has(id));
+      const next = new Set(prev);
+      if (allSelected) {
+        visibleIds.forEach((id) => next.delete(id));
+      } else {
+        visibleIds.forEach((id) => next.add(id));
+      }
+      return next;
+    });
+  }
+
+  const unreviewedCount = transactions.filter((t) => !t.reviewed).length;
+  const allVisibleSelected = visible.length > 0 && visible.every((t) => selected.has(t.transactionId));
 
   async function handleApprove() {
     setApproving(true);
@@ -147,7 +179,8 @@ export default function ReviewPage({ params }: { params: Promise<{ month: string
       {error && <p className="text-sm text-red-600">{error}</p>}
       {unreviewedCount > 0 && (
         <p className="text-sm text-amber-600">
-          {unreviewedCount} transaction(s) categorized as &quot;other&quot; need review before approval.
+          {unreviewedCount} transaction(s) still need review (including auto-categorized suggestions)
+          before approval.
         </p>
       )}
 
@@ -198,6 +231,12 @@ export default function ReviewPage({ params }: { params: Promise<{ month: string
               </option>
             ))}
           </select>
+          <button
+            onClick={markSelectedReviewed}
+            className="rounded border border-zinc-300 px-2 py-1 hover:bg-zinc-200 dark:border-zinc-700 dark:hover:bg-zinc-800"
+          >
+            Confirm as reviewed
+          </button>
         </div>
       )}
 
@@ -205,7 +244,14 @@ export default function ReviewPage({ params }: { params: Promise<{ month: string
         <table className="w-full min-w-[900px] text-left text-sm">
           <thead className="border-b border-zinc-200 text-zinc-500 dark:border-zinc-800">
             <tr>
-              <th className="p-2"></th>
+              <th className="p-2">
+                <input
+                  type="checkbox"
+                  checked={allVisibleSelected}
+                  onChange={toggleSelectAllVisible}
+                  aria-label="Select all visible rows"
+                />
+              </th>
               <th className="p-2">Spender</th>
               <th className="p-2">Date</th>
               <th className="p-2">Account</th>
@@ -221,7 +267,7 @@ export default function ReviewPage({ params }: { params: Promise<{ month: string
               <tr
                 key={t.transactionId}
                 className={`border-b border-zinc-100 dark:border-zinc-900 ${
-                  !t.reviewed && t.category === "other" ? "bg-amber-50 dark:bg-amber-950/20" : ""
+                  !t.reviewed ? "bg-amber-50 dark:bg-amber-950/20" : ""
                 }`}
               >
                 <td className="p-2">
