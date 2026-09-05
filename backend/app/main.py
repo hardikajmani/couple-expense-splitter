@@ -17,7 +17,14 @@ from typing import List, Optional
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel
+
+try:
+    # Pydantic v2
+    from pydantic import field_validator
+except ImportError:  # pragma: no cover - runtime compatibility path
+    # Pydantic v1 fallback
+    from pydantic import validator as field_validator
 
 from app.calculator import calculate_settlement
 from app.categorizer import Categorizer
@@ -53,8 +60,12 @@ class SetupRequest(BaseModel):
 
     @field_validator("ratioB")
     @classmethod
-    def ratio_sums_to_100(cls, v: float, info) -> float:
-        ratio_a = info.data.get("ratioA")
+    def ratio_sums_to_100(cls, v: float, info_or_values) -> float:
+        # Works with both Pydantic v2 (ValidationInfo) and v1 (values dict).
+        if hasattr(info_or_values, "data"):
+            ratio_a = info_or_values.data.get("ratioA")
+        else:
+            ratio_a = (info_or_values or {}).get("ratioA")
         if ratio_a is not None and abs((ratio_a + v) - 100) > 0.001:
             raise ValueError("ratioA + ratioB must equal 100")
         return v
@@ -105,7 +116,7 @@ def _require_setup(month: str) -> dict:
 
 @app.post("/api/months/{month}/setup")
 def create_setup(month: str, body: SetupRequest):
-    setup = body.model_dump()
+    setup = body.model_dump() if hasattr(body, "model_dump") else body.dict()
     storage.save_setup(month, setup)
     return setup
 
