@@ -45,3 +45,19 @@ def test_exact_tag_overrides_pattern(tmp_path):
     category, reviewed = cat.categorize("uber eats")
     assert category == "food"
     assert reviewed is True
+
+
+def test_legacy_keyword_rules_cover_common_merchant_patterns(tmp_path):
+    cat = Categorizer(tmp_path)
+
+    category, reviewed = cat.categorize("tim hortons winnipeg")
+    assert category == "food"
+    assert reviewed is False
+
+    category, reviewed = cat.categorize("bell canada")
+    assert category == "utilities"
+    assert reviewed is False
+
+    category, reviewed = cat.categorize("withdrawal free interac e transfer")
+    assert category == "transfer"
+    assert reviewed is False

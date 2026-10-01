@@ -17,14 +17,7 @@ from typing import List, Optional
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-
-try:
-    # Pydantic v2
-    from pydantic import field_validator
-except ImportError:  # pragma: no cover - runtime compatibility path
-    # Pydantic v1 fallback
-    from pydantic import validator as field_validator
+from pydantic import BaseModel, validator
 
 from app.calculator import calculate_settlement
 from app.categorizer import Categorizer
@@ -51,21 +44,17 @@ class SetupRequest(BaseModel):
     ratioA: float = 50
     ratioB: float = 50
 
-    @field_validator("personA", "personB")
+    @validator("personA", "personB")
     @classmethod
     def not_blank(cls, v: str) -> str:
         if not v or not v.strip():
             raise ValueError("Person name cannot be blank")
         return v.strip()
 
-    @field_validator("ratioB")
+    @validator("ratioB")
     @classmethod
-    def ratio_sums_to_100(cls, v: float, info_or_values) -> float:
-        # Works with both Pydantic v2 (ValidationInfo) and v1 (values dict).
-        if hasattr(info_or_values, "data"):
-            ratio_a = info_or_values.data.get("ratioA")
-        else:
-            ratio_a = (info_or_values or {}).get("ratioA")
+    def ratio_sums_to_100(cls, v: float, values: dict, **kwargs) -> float:
+        ratio_a = values.get("ratioA")
         if ratio_a is not None and abs((ratio_a + v) - 100) > 0.001:
             raise ValueError("ratioA + ratioB must equal 100")
         return v
@@ -75,14 +64,14 @@ class TransactionUpdate(BaseModel):
     category: Optional[str] = None
     costAssignee: Optional[int] = None
 
-    @field_validator("category")
+    @validator("category")
     @classmethod
     def valid_category(cls, v):
         if v is not None and v not in CATEGORIES:
             raise ValueError(f"category must be one of {CATEGORIES}")
         return v
 
-    @field_validator("costAssignee")
+    @validator("costAssignee")
     @classmethod
     def valid_cost_assignee(cls, v):
         if v is not None and v not in VALID_COST_ASSIGNEES:

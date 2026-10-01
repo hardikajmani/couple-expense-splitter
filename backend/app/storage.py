@@ -5,7 +5,7 @@ Layout:
   data/<YYYY-MM>/clean/<person>/<account>.json  (cleaned transactions)
   data/<YYYY-MM>/clean/approved.json            (approved snapshot for the month)
   data/<YYYY-MM>/setup.json                     (month setup: names + ratio)
-  data/merchant_tags.json, data/merchant_patterns.json (global, cross-month)
+    data/merchant_tags.json, data/merchant_patterns.json, data/category_rules.json (global, cross-month)
 """
 from __future__ import annotations
 
