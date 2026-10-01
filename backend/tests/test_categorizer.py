@@ -61,3 +61,18 @@ def test_legacy_keyword_rules_cover_common_merchant_patterns(tmp_path):
     category, reviewed = cat.categorize("withdrawal free interac e transfer")
     assert category == "transfer"
     assert reviewed is False
+
+
+def test_legacy_keyword_rules_cover_omitted_patterns(tmp_path):
+    cat = Categorizer(tmp_path)
+
+    for merchant, expected in [
+        ("taxi ride", "travel"),
+        ("grocery market", "groceries"),
+        ("koodo mobile", "utilities"),
+        ("payroll deposit", "transfer"),
+        ("clothing store", "shopping"),
+    ]:
+        category, reviewed = cat.categorize(merchant)
+        assert category == expected
+        assert reviewed is False
